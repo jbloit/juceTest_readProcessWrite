@@ -37,7 +37,6 @@ private:
     void processBuffer(std::function<void()> doneCallback=nullptr);
     void writeToFile(std::function<void()> doneCallback=nullptr);
     
-    
     enum State{
         idle,
         should_load, // for worker thread to pickup
@@ -50,12 +49,15 @@ private:
         writing
     };
     State state {idle};
-    
     bool uiNeedsRefresh = true;
     
+    AudioFormatManager formatManager;
+    std::unique_ptr<AudioFormatReader> reader;
+    std::unique_ptr<AudioFormatWriter> writer;
     File audioInputFile;
     File audioOutputFile;
-    
+    std::unique_ptr<AudioSampleBuffer> buffer;
+    double sampleRate = 0;
     
 #pragma mark - thread
     void run() override;

@@ -7,7 +7,7 @@ MainComponent::MainComponent(): Thread("background")
     addAndMakeVisible(actionButton);
     actionButton.onClick = [this]{doNextAction();};
 
-    
+    formatManager.registerBasicFormats();
     initFiles();
     startTimer(100); // UI udates
     startThread();  // background worker
@@ -116,7 +116,7 @@ void MainComponent::doNextAction()
 void MainComponent::initFiles()
 {
     auto documentsDirectory = File::getSpecialLocation (File::userDocumentsDirectory);
-    audioInputFile = documentsDirectory.getChildFile("sounds").getChildFile("whyisitGreen.wav");
+    audioInputFile = documentsDirectory.getChildFile("sounds").getChildFile("input.wav");
     audioOutputFile = documentsDirectory.getChildFile("sounds").getChildFile("processed.wav");
     
     jassert(audioInputFile.exists());
@@ -128,9 +128,25 @@ void MainComponent::loadFile(std::function<void()> doneCallback)
 {
     DBG("loading file now");
     
-    Thread::sleep(1000);
+    FileInputSource inputSource(audioInputFile, false);
     
-    DBG("done loading file");
+    reader.reset(formatManager.createReaderFor(audioInputFile));
+    
+    
+    if (reader != nullptr)
+    {
+        sampleRate = reader->sampleRate;
+        auto duration = reader->lengthInSamples / reader->sampleRate;
+        
+        
+        if (duration > 0)
+        {
+            buffer.reset(new AudioSampleBuffer((int) reader->numChannels, (int) reader->lengthInSamples));
+            reader->read(buffer.get(), 0, (int) reader->lengthInSamples, 0, true, true);
+        }
+    }
+    
+    DBG("done loading file, with lengthInSamples " << reader->lengthInSamples );
     if (doneCallback != nullptr)
     {
         doneCallback();
@@ -141,7 +157,10 @@ void MainComponent::processBuffer(std::function<void()> doneCallback)
 {
     DBG("processing buffer now");
     
-    Thread::sleep(1000);
+    if (buffer != nullptr)
+    {
+        buffer.get()->reverse(0, buffer.get()->getNumSamples());
+    }
     
     DBG("done processing");
     if (doneCallback != nullptr)
@@ -154,8 +173,28 @@ void MainComponent::writeToFile(std::function<void()> doneCallback)
 {
     DBG("writing to file now");
     
-    Thread::sleep(1000);
+    audioOutputFile.deleteFile();
     
+        if (buffer != nullptr)
+        {
+            if (buffer.get()->getNumSamples() > 0)
+            {
+                auto* outputTo = audioOutputFile.createOutputStream().release();
+                if (outputTo->openedOk())
+                {
+                    WavAudioFormat wavFormat;
+                    writer.reset(wavFormat.createWriterFor(outputTo, sampleRate, 2, 16, {}, 0));
+                    
+                    if (writer != nullptr)
+                    {
+                        writer.get()->writeFromAudioSampleBuffer(*buffer.get(), 0, buffer.get()->getNumSamples());
+                        writer->flush();
+                    }
+                }
+
+            }
+        }
+
     DBG("done writing file");
     if (doneCallback != nullptr)
     {
@@ -205,11 +244,10 @@ void MainComponent::run()
         
         wait(10);
     }
-    
 }
 
 
-#pragma mark - thread
+#pragma mark - timer
 void MainComponent::timerCallback()
 {
     if (uiNeedsRefresh)
